@@ -1,7 +1,7 @@
 FROM mcr.microsoft.com/playwright:v1.52.0-jammy
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN npm install
+RUN npm install && npx playwright install chromium
 COPY tsconfig.json ./
 COPY src ./src
 RUN npm run build && npm prune --omit=dev
