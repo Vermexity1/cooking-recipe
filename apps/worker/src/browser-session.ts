@@ -30,7 +30,7 @@ export class RemoteBrowserSession {
 
     this.context = await chromium.launchPersistentContext(this.storagePath, {
       headless: true,
-      chromiumSandbox: true,
+      chromiumSandbox: process.env.CHROMIUM_SANDBOX === "true",
       viewport: { width: 1440, height: 1000 },
       deviceScaleFactor: 1,
       permissions: [],
@@ -42,6 +42,7 @@ export class RemoteBrowserSession {
         "--disable-background-networking",
         "--disable-sync",
         "--no-first-run",
+        "--no-sandbox",
         "--mute-audio",
       ],
     });

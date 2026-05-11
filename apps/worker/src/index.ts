@@ -51,7 +51,6 @@ const browser = new RemoteBrowserSession({
   initialUrl: process.env.INITIAL_URL ?? "https://example.com",
 });
 
-const page = await browser.launch();
 const bridge = new StreamBridge(browser);
 const port = Number(process.env.PORT ?? 3000);
 let currentUrl = process.env.INITIAL_URL ?? "https://example.com";
@@ -59,14 +58,34 @@ let lastError = "";
 let currentQuality = clampNumber(Number(process.env.FRAME_QUALITY ?? 72), 72, 35, 90);
 let maxFps = clampNumber(Number(process.env.MAX_FPS ?? 6), 6, 1, 12);
 const workerAuthToken = (process.env.WORKER_AUTH_TOKEN ?? process.env.VM_WORKER_AUTH_TOKEN ?? "").trim();
+let browserReady = false;
+let browserBooting = false;
 
-console.log(
-  JSON.stringify({
-    event: "worker-ready",
-    sessionId: session.id,
-    title: await page.title(),
-  }),
-);
+async function bootBrowser() {
+  if (browserReady || browserBooting) {
+    return;
+  }
+
+  browserBooting = true;
+  lastError = "";
+
+  try {
+    const page = await browser.launch();
+    browserReady = true;
+    console.log(
+      JSON.stringify({
+        event: "worker-browser-ready",
+        sessionId: session.id,
+        title: await page.title(),
+      }),
+    );
+  } catch (error) {
+    lastError = error instanceof Error ? error.message : String(error);
+    console.error(JSON.stringify({ event: "worker-browser-failed", error: lastError }));
+  } finally {
+    browserBooting = false;
+  }
+}
 
 function clampNumber(value: number, fallback: number, min: number, max: number) {
   if (!Number.isFinite(value)) {
@@ -117,6 +136,20 @@ function writeUnauthorized(response: ServerResponse) {
     "content-type": "application/json",
   });
   response.end(JSON.stringify({ error: "Unauthorized worker request", ok: false }));
+}
+
+function writeNotReady(response: ServerResponse) {
+  response.writeHead(503, {
+    "cache-control": "no-store",
+    "content-type": "application/json",
+  });
+  response.end(
+    JSON.stringify({
+      error: lastError || "Remote browser is still booting",
+      ok: false,
+      status: browserBooting ? "booting" : "not-ready",
+    }),
+  );
 }
 
 function authCookieHeader() {
@@ -262,6 +295,22 @@ createServer(async (request, response) => {
   const url = new URL(request.url ?? "/", "http://localhost");
 
   try {
+    if (url.pathname === "/health") {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({
+          ok: browserReady,
+          error: lastError,
+          maxFps,
+          quality: currentQuality,
+          sessionId: session.id,
+          status: browserReady ? "ready" : browserBooting ? "booting" : "not-ready",
+          url: currentUrl,
+        }),
+      );
+      return;
+    }
+
     if (!requestIsAuthorized(request, url)) {
       writeUnauthorized(response);
       return;
@@ -272,22 +321,12 @@ createServer(async (request, response) => {
         ? { "set-cookie": authCookieHeader() }
         : undefined;
 
-    if (url.pathname === "/health") {
-      response.writeHead(200, { "content-type": "application/json", ...headersWithAuthCookie });
-      response.end(
-        JSON.stringify({
-          ok: true,
-          error: lastError,
-          maxFps,
-          quality: currentQuality,
-          sessionId: session.id,
-          url: currentUrl,
-        }),
-      );
-      return;
-    }
-
     if (url.pathname === "/navigate" && request.method === "POST") {
+      if (!browserReady) {
+        writeNotReady(response);
+        return;
+      }
+
       const raw = await readBody(request);
       const body = JSON.parse(raw || "{}") as { url?: string };
       const nextUrl = String(body.url ?? currentUrl);
@@ -305,6 +344,11 @@ createServer(async (request, response) => {
     }
 
     if (url.pathname === "/frame.jpg") {
+      if (!browserReady) {
+        writeNotReady(response);
+        return;
+      }
+
       const quality = clampNumber(
         Number(url.searchParams.get("quality") ?? currentQuality),
         currentQuality,
@@ -321,6 +365,11 @@ createServer(async (request, response) => {
     }
 
     if (url.pathname === "/click" && request.method === "POST") {
+      if (!browserReady) {
+        writeNotReady(response);
+        return;
+      }
+
       const body = JSON.parse((await readBody(request)) || "{}") as {
         x?: number;
         y?: number;
@@ -332,6 +381,11 @@ createServer(async (request, response) => {
     }
 
     if (url.pathname === "/scroll" && request.method === "POST") {
+      if (!browserReady) {
+        writeNotReady(response);
+        return;
+      }
+
       const body = JSON.parse((await readBody(request)) || "{}") as {
         deltaX?: number;
         deltaY?: number;
@@ -350,6 +404,11 @@ createServer(async (request, response) => {
     }
 
     if (url.pathname === "/key" && request.method === "POST") {
+      if (!browserReady) {
+        writeNotReady(response);
+        return;
+      }
+
       const body = JSON.parse((await readBody(request)) || "{}") as {
         key?: string;
       };
@@ -360,7 +419,7 @@ createServer(async (request, response) => {
     }
 
     const requestedUrl = url.searchParams.get("url");
-    if (requestedUrl && requestedUrl !== currentUrl) {
+    if (requestedUrl && requestedUrl !== currentUrl && browserReady) {
       currentUrl =
         requestedUrl.startsWith("http://") || requestedUrl.startsWith("https://")
           ? requestedUrl
@@ -396,10 +455,13 @@ createServer(async (request, response) => {
       sessionId: session.id,
     }),
   );
+  void bootBrowser();
 });
 
 process.on("SIGTERM", async () => {
-  await bridge.nextFallbackFrame().catch(() => null);
+  if (browserReady) {
+    await bridge.nextFallbackFrame().catch(() => null);
+  }
   await browser.close();
   process.exit(0);
 });
