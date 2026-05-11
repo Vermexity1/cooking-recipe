@@ -1,0 +1,128 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SessionMode {
+  temporary
+  persistent
+  developer
+}
+
+enum SessionStatus {
+  allocating
+  booting
+  streaming
+  suspended
+  destroying
+  destroyed
+  failed
+}
+
+model User {
+  id           String        @id @default(cuid())
+  email        String        @unique
+  name         String?
+  passwordHash String?
+  mfaEnabled   Boolean       @default(false)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  devices      Device[]
+  workspaces   Workspace[]
+  auditLogs    AuditLog[]
+  settings     Setting[]
+}
+
+model Device {
+  id          String   @id @default(cuid())
+  userId      String
+  label       String
+  publicKey   String?
+  approvedAt  DateTime?
+  lastSeenAt  DateTime?
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Workspace {
+  id          String           @id @default(cuid())
+  userId      String
+  name        String
+  encryptedKey String?
+  createdAt   DateTime         @default(now())
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions     BrowserSession[]
+  bookmarks    Bookmark[]
+  history      HistoryEntry[]
+}
+
+model BrowserSession {
+  id          String        @id
+  workspaceId String
+  mode        SessionMode
+  status      SessionStatus @default(allocating)
+  region      String
+  workerId    String?
+  cookiePartition String
+  expiresAt   DateTime
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  tabs        Tab[]
+}
+
+model Tab {
+  id        String         @id @default(cuid())
+  sessionId String
+  title     String
+  url       String
+  active    Boolean        @default(false)
+  createdAt DateTime       @default(now())
+  session   BrowserSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}
+
+model Bookmark {
+  id          String    @id @default(cuid())
+  workspaceId String
+  title       String
+  url         String
+  tag         String?
+  createdAt   DateTime  @default(now())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model HistoryEntry {
+  id          String    @id @default(cuid())
+  workspaceId String
+  title       String
+  url         String
+  risk        String    @default("clean")
+  visitedAt   DateTime  @default(now())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model Setting {
+  id        String   @id @default(cuid())
+  userId    String
+  key       String
+  value     Json
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  targetId  String
+  ipHash    String
+  metadata  Json
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+}

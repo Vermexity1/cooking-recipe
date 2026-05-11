@@ -1,0 +1,8 @@
+{
+  "name": "@veil/config",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/security.ts",
+  "types": "./src/security.ts"
+}

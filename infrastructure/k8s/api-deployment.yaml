@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: veil-api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: veil-api
+  template:
+    metadata:
+      labels:
+        app: veil-api
+    spec:
+      containers:
+        - name: api
+          image: ghcr.io/example/veil-api:latest
+          ports:
+            - containerPort: 4000
+          envFrom:
+            - secretRef:
+                name: veil-api-secrets
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 768Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4000
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: veil-api
+spec:
+  selector:
+    app: veil-api
+  ports:
+    - name: http
+      port: 4000
+      targetPort: 4000

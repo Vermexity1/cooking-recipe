@@ -1,0 +1,24 @@
+{
+  "name": "veil-cloud-browser-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Privacy-focused remote cloud browser platform with isolated browser workers.",
+  "workspaces": [
+    "apps/web",
+    "apps/api",
+    "apps/worker",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm --prefix apps/web run dev",
+    "start": "npm --prefix apps/web run start",
+    "build": "npm --prefix apps/web run build",
+    "lint": "npm --prefix apps/web run lint",
+    "typecheck": "npx tsc --noEmit -p apps/web/tsconfig.json",
+    "seed:auth": "npm --prefix apps/web run seed:auth",
+    "dev:web": "npm --prefix apps/web run dev",
+    "build:web": "npm --prefix apps/web run build",
+    "lint:web": "npm --prefix apps/web run lint",
+    "typecheck:web": "npx tsc --noEmit -p apps/web/tsconfig.json"
+  }
+}

@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: veil-browser-worker
+spec:
+  replicas: 6
+  selector:
+    matchLabels:
+      app: veil-browser-worker
+  template:
+    metadata:
+      labels:
+        app: veil-browser-worker
+    spec:
+      runtimeClassName: gvisor
+      containers:
+        - name: worker
+          image: ghcr.io/example/veil-worker:latest
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          envFrom:
+            - secretRef:
+                name: veil-worker-secrets
+          volumeMounts:
+            - name: scratch
+              mountPath: /tmp/veil-sessions
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "768Mi"
+            limits:
+              cpu: "1500m"
+              memory: "1536Mi"
+      volumes:
+        - name: scratch
+          emptyDir:
+            sizeLimit: 4Gi
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: veil-browser-worker
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: veil-browser-worker
+  minReplicas: 6
+  maxReplicas: 300
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
