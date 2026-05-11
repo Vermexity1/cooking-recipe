@@ -122,11 +122,15 @@ async function waitForSandboxRunner(runnerUrl: string) {
   return false;
 }
 
-async function rankHealthyWorkers(providers: WorkerProvider[]) {
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function rankHealthyWorkers(providers: WorkerProvider[], timeoutMs = 1500) {
   const ranked = await Promise.all(
     providers.map(async (provider, index) => {
       const started = Date.now();
-      const ok = await waitForRunner(provider.url);
+      const ok = await waitForRunner(provider.url, timeoutMs);
       return {
         ...provider,
         index,
@@ -139,6 +143,26 @@ async function rankHealthyWorkers(providers: WorkerProvider[]) {
   return ranked
     .filter((provider) => provider.ok)
     .sort((left, right) => left.latencyMs - right.latencyMs || left.index - right.index);
+}
+
+async function wakeHealthyWorkers(providers: WorkerProvider[]) {
+  let ranked = await rankHealthyWorkers(providers, 1800);
+
+  if (ranked.length) {
+    return ranked;
+  }
+
+  for (let attempt = 0; attempt < 24; attempt += 1) {
+    ranked = await rankHealthyWorkers(providers, attempt < 2 ? 15000 : 5000);
+
+    if (ranked.length) {
+      return ranked;
+    }
+
+    await delay(2500);
+  }
+
+  return [];
 }
 
 const runnerServer = String.raw`
@@ -417,7 +441,9 @@ export async function POST(request: Request) {
   streamOptions.fps = clampNumber(streamOptions.fps, 6, 1, 12);
   streamOptions.quality = clampNumber(streamOptions.quality, 72, 35, 90);
   const configuredWorkers = configuredWorkerProviders();
-  const healthyWorkers = await rankHealthyWorkers(configuredWorkers);
+  const healthyWorkers = configuredWorkers.length
+    ? await wakeHealthyWorkers(configuredWorkers)
+    : [];
 
   if (healthyWorkers.length) {
     const [primaryWorker, ...backupWorkers] = healthyWorkers;

@@ -229,6 +229,14 @@ type FileSystemItem = {
 type FileLocation = "Home" | "Desktop" | "Downloads" | "VM Snapshots" | "Secure Vault";
 type FileDraft = Omit<FileSystemItem, "id"> & { id?: string };
 type BrowserScrollCommand = { id: number; deltaX: number; deltaY: number };
+type CloudRunnerInfo = {
+  detail?: string;
+  latencyMs?: number;
+  mode?: string;
+  provider: string;
+  status: "idle" | "checking" | "warming" | "ready" | "error";
+  updatedAt?: string;
+};
 
 const startUrl = "veil://new-tab";
 const browserZoomMin = 0.5;
@@ -6136,6 +6144,7 @@ function VirtualMachineApp({
 function RemoteRunnerFrame({
   bandwidthMode = "Adaptive",
   emptyText,
+  onRunnerStatus,
   scrollCommand,
   targetUrl,
   title,
@@ -6143,6 +6152,7 @@ function RemoteRunnerFrame({
 }: {
   bandwidthMode?: BandwidthMode;
   emptyText: string;
+  onRunnerStatus?: (info: CloudRunnerInfo) => void;
   scrollCommand?: BrowserScrollCommand | null;
   targetUrl: string;
   title: string;
@@ -6157,6 +6167,9 @@ function RemoteRunnerFrame({
   const [status, setStatus] = useState("Ready to launch cloud renderer.");
   const [error, setError] = useState("");
   const [errorDismissed, setErrorDismissed] = useState(false);
+  const [runnerProvider, setRunnerProvider] = useState("None");
+  const [runnerMode, setRunnerMode] = useState("");
+  const [runnerLatencyMs, setRunnerLatencyMs] = useState<number | undefined>();
   const streamSettings = useMemo(() => (
     bandwidthMode === "Low data"
       ? { fps: 4, quality: 58 }
@@ -6181,13 +6194,28 @@ function RemoteRunnerFrame({
       setSandboxId("");
       setError("");
       setErrorDismissed(false);
+      setRunnerProvider("None");
+      setRunnerMode("");
+      setRunnerLatencyMs(undefined);
+      onRunnerStatus?.({
+        detail: "No site loaded in the cloud frame yet.",
+        provider: "None",
+        status: "idle",
+        updatedAt: new Date().toISOString(),
+      });
 
       if (!targetUrl || targetUrl === startUrl) {
         setStatus(emptyText);
         return;
       }
 
-      setStatus("Allocating Vercel Sandbox microVM...");
+      setStatus("Checking free cloud worker pool...");
+      onRunnerStatus?.({
+        detail: "Checking configured free workers and waking them if needed.",
+        provider: "Worker pool",
+        status: "checking",
+        updatedAt: new Date().toISOString(),
+      });
 
       try {
         const response = await fetch("/api/vm/launch", {
@@ -6221,6 +6249,20 @@ function RemoteRunnerFrame({
         setPendingIndex(0);
         setPendingUrl(runnerUrls[0]);
         setSandboxId(payload.sandboxId ?? "");
+        const provider = payload.provider ?? payload.mode ?? "Cloud";
+        setRunnerProvider(provider);
+        setRunnerMode(payload.mode ?? "");
+        setRunnerLatencyMs(payload.providerLatencyMs);
+        onRunnerStatus?.({
+          detail: payload.ready
+            ? "Worker answered immediately."
+            : "Worker is allocated and Chromium is warming.",
+          latencyMs: payload.providerLatencyMs,
+          mode: payload.mode,
+          provider,
+          status: payload.ready ? "ready" : "warming",
+          updatedAt: new Date().toISOString(),
+        });
         setStatus(
           payload.ready
             ? `Runner is ready on ${payload.provider ?? payload.mode ?? "cloud"}. Opening stream...`
@@ -6232,6 +6274,12 @@ function RemoteRunnerFrame({
         }
         setError(launchError instanceof Error ? launchError.message : String(launchError));
         setStatus("Cloud renderer failed to launch.");
+        onRunnerStatus?.({
+          detail: launchError instanceof Error ? launchError.message : String(launchError),
+          provider: "Worker pool",
+          status: "error",
+          updatedAt: new Date().toISOString(),
+        });
       }
     }
 
@@ -6240,7 +6288,7 @@ function RemoteRunnerFrame({
     return () => {
       cancelled = true;
     };
-  }, [emptyText, streamSettings, targetUrl]);
+  }, [emptyText, onRunnerStatus, streamSettings, targetUrl]);
 
   useEffect(() => {
     if (!pendingUrl) {
@@ -6263,6 +6311,14 @@ function RemoteRunnerFrame({
         if (response.ok && health.ok) {
           setFrameUrl(pendingUrl);
           setStatus(`Cloud renderer ready${sandboxId ? ` / ${sandboxId}` : ""}.`);
+          onRunnerStatus?.({
+            detail: "Remote Chromium is streaming frames.",
+            latencyMs: runnerLatencyMs,
+            mode: runnerMode,
+            provider: runnerProvider,
+            status: "ready",
+            updatedAt: new Date().toISOString(),
+          });
           return;
         }
 
@@ -6271,9 +6327,27 @@ function RemoteRunnerFrame({
             ? `Runner warming: ${health.error.slice(0, 140)}`
             : `Runner warming on port, attempt ${attempts}...`,
         );
+        onRunnerStatus?.({
+          detail: health.error
+            ? health.error.slice(0, 140)
+            : `Waiting for Chromium, attempt ${attempts}.`,
+          latencyMs: runnerLatencyMs,
+          mode: runnerMode,
+          provider: runnerProvider,
+          status: "warming",
+          updatedAt: new Date().toISOString(),
+        });
       } catch {
         if (!cancelled) {
           setStatus(`Runner warming on port, attempt ${attempts}...`);
+          onRunnerStatus?.({
+            detail: `Waiting for worker HTTP response, attempt ${attempts}.`,
+            latencyMs: runnerLatencyMs,
+            mode: runnerMode,
+            provider: runnerProvider,
+            status: "warming",
+            updatedAt: new Date().toISOString(),
+          });
         }
       }
 
@@ -6292,7 +6366,7 @@ function RemoteRunnerFrame({
     return () => {
       cancelled = true;
     };
-  }, [pendingIndex, pendingUrl, pendingUrls, sandboxId]);
+  }, [onRunnerStatus, pendingIndex, pendingUrl, pendingUrls, runnerLatencyMs, runnerMode, runnerProvider, sandboxId]);
 
   useEffect(() => {
     iframeRef.current?.contentWindow?.postMessage(
@@ -6593,6 +6667,12 @@ function BrowserWorkspaceApp({ account }: { account?: BrowserAccount }) {
   const [panelView, setPanelView] = useState<PanelView>("search");
   const [privacyPreset, setPrivacyPreset] = useState<PrivacyPreset>("Balanced");
   const [bandwidthMode, setBandwidthMode] = useState<BandwidthMode>("Adaptive");
+  const [cloudRunnerInfo, setCloudRunnerInfo] = useState<CloudRunnerInfo>({
+    detail: "Use Wake Cloud before opening a heavy site.",
+    provider: "Not checked",
+    status: "idle",
+  });
+  const [cloudWakeBusy, setCloudWakeBusy] = useState(false);
   const [sessionState, setSessionState] = useState<SessionState>("live");
   const [elapsed, setElapsed] = useState(2384);
   const [bookmarks, setBookmarks] = useState<BookmarkItem[]>(seedBookmarks);
@@ -7021,6 +7101,59 @@ function BrowserWorkspaceApp({ account }: { account?: BrowserAccount }) {
     addLog(direction > 0 ? "Scrolled browser down" : "Scrolled browser up");
   };
 
+  const wakeCloudRunner = async () => {
+    setCloudWakeBusy(true);
+    setCloudRunnerInfo({
+      detail: "Sending a wake ping to the configured free worker.",
+      provider: "Worker pool",
+      status: "checking",
+      updatedAt: new Date().toISOString(),
+    });
+    addLog("Waking cloud runner");
+
+    try {
+      const response = await fetch("/api/cloud/wake", {
+        cache: "no-store",
+        method: "POST",
+      });
+      const payload = (await response.json()) as {
+        message?: string;
+        providers?: Array<{
+          error?: string;
+          latencyMs?: number;
+          name: string;
+          online: boolean;
+          status: "online" | "warming" | "offline";
+        }>;
+        status?: "missing" | "online" | "warming";
+      };
+      const provider =
+        payload.providers?.find((item) => item.online) ??
+        payload.providers?.find((item) => item.status === "warming") ??
+        payload.providers?.[0];
+
+      setCloudRunnerInfo({
+        detail: payload.message ?? provider?.error ?? "Wake request finished.",
+        latencyMs: provider?.latencyMs,
+        mode: "free worker pool",
+        provider: provider?.name ?? "Worker pool",
+        status: payload.status === "online" ? "ready" : payload.status === "missing" ? "error" : "warming",
+        updatedAt: new Date().toISOString(),
+      });
+      addLog(payload.message ?? "Cloud wake request completed");
+    } catch (error) {
+      setCloudRunnerInfo({
+        detail: error instanceof Error ? error.message : String(error),
+        provider: "Worker pool",
+        status: "error",
+        updatedAt: new Date().toISOString(),
+      });
+      addLog("Cloud wake request failed");
+    } finally {
+      setCloudWakeBusy(false);
+    }
+  };
+
   return (
     <main className="black-streaks relative h-full overflow-hidden bg-black text-white">
       <div className="relative flex h-full min-h-0 flex-col p-0">
@@ -7033,6 +7166,8 @@ function BrowserWorkspaceApp({ account }: { account?: BrowserAccount }) {
             browserZoom={browserZoom}
             canGoBack={canGoBack}
             canGoForward={canGoForward}
+            cloudRunnerInfo={cloudRunnerInfo}
+            cloudWakeBusy={cloudWakeBusy}
             cloudMode={cloudMode}
             elapsed={elapsed}
             keyboardOpen={keyboardOpen}
@@ -7041,6 +7176,7 @@ function BrowserWorkspaceApp({ account }: { account?: BrowserAccount }) {
             onBack={() => goHistory(-1)}
             onBookmark={bookmarkActiveTab}
             onCloudMode={toggleCloudMode}
+            onCloudRunnerStatus={setCloudRunnerInfo}
             onCloseTab={closeTab}
             onCommand={() => setCommandOpen(true)}
             onForward={() => goHistory(1)}
@@ -7069,6 +7205,7 @@ function BrowserWorkspaceApp({ account }: { account?: BrowserAccount }) {
             onTune={() => setSettingsOpen(true)}
             onUpload={() => uploadInputRef.current?.click()}
             onVirtualKeyboard={() => setKeyboardOpen((value) => !value)}
+            onWakeCloudRunner={wakeCloudRunner}
             onZoomIn={() => adjustBrowserZoom(browserZoomStep)}
             onZoomOut={() => adjustBrowserZoom(-browserZoomStep)}
             onZoomReset={resetBrowserZoom}
@@ -7464,6 +7601,8 @@ function BrowserStage({
   browserZoom,
   canGoBack,
   canGoForward,
+  cloudRunnerInfo,
+  cloudWakeBusy,
   cloudMode,
   elapsed,
   keyboardOpen,
@@ -7472,6 +7611,7 @@ function BrowserStage({
   onBookmark,
   onClearData,
   onCloudMode,
+  onCloudRunnerStatus,
   onCloseTab,
   onCommand,
   onDestroy,
@@ -7490,6 +7630,7 @@ function BrowserStage({
   onTune,
   onUpload,
   onVirtualKeyboard,
+  onWakeCloudRunner,
   onZoomIn,
   onZoomOut,
   onZoomReset,
@@ -7506,6 +7647,8 @@ function BrowserStage({
   browserZoom: number;
   canGoBack: boolean;
   canGoForward: boolean;
+  cloudRunnerInfo: CloudRunnerInfo;
+  cloudWakeBusy: boolean;
   cloudMode: boolean;
   elapsed: number;
   keyboardOpen: boolean;
@@ -7514,6 +7657,7 @@ function BrowserStage({
   onBookmark: () => void;
   onClearData: () => void;
   onCloudMode: () => void;
+  onCloudRunnerStatus: (info: CloudRunnerInfo) => void;
   onCloseTab: (id: string) => void;
   onCommand: () => void;
   onDestroy: () => void;
@@ -7532,6 +7676,7 @@ function BrowserStage({
   onTune: () => void;
   onUpload: () => void;
   onVirtualKeyboard: () => void;
+  onWakeCloudRunner: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
   onZoomReset: () => void;
@@ -7710,6 +7855,53 @@ function BrowserStage({
                       <span>{item.label}</span>
                     </button>
                   ))}
+                  <div className="mt-2 rounded-xl border border-white/10 bg-white/[0.045] p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-[11px] uppercase tracking-[0.22em] text-slate-500">
+                          Cloud runner
+                        </p>
+                        <p className="mt-1 truncate text-sm font-semibold text-white">
+                          {cloudRunnerInfo.provider}
+                        </p>
+                      </div>
+                      <span
+                        className={cn(
+                          "rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em]",
+                          cloudRunnerInfo.status === "ready"
+                            ? "bg-emerald-300/15 text-emerald-200"
+                            : cloudRunnerInfo.status === "error"
+                              ? "bg-rose-300/15 text-rose-200"
+                              : "bg-amber-300/15 text-amber-100",
+                        )}
+                      >
+                        {cloudRunnerInfo.status}
+                      </span>
+                    </div>
+                    <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-400">
+                      {cloudRunnerInfo.detail ?? "Use Wake Cloud before opening a heavy site."}
+                    </p>
+                    <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-slate-500">
+                      <span>{cloudRunnerInfo.mode ?? "free pool"}</span>
+                      <span>
+                        {typeof cloudRunnerInfo.latencyMs === "number"
+                          ? `${cloudRunnerInfo.latencyMs} ms`
+                          : "not tested"}
+                      </span>
+                    </div>
+                    <button
+                      className="mt-3 flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-white text-xs font-semibold text-black transition hover:bg-slate-200 disabled:cursor-wait disabled:opacity-60"
+                      disabled={cloudWakeBusy}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onWakeCloudRunner();
+                      }}
+                      type="button"
+                    >
+                      <Cloud className="size-4" />
+                      {cloudWakeBusy ? "Waking..." : "Wake cloud runner"}
+                    </button>
+                  </div>
                   <div className="mt-1 border-t border-white/10 px-3 py-2 text-[11px] text-slate-500">
                     {bandwidthMode} · cloud tools stay enabled
                   </div>
@@ -7742,6 +7934,7 @@ function BrowserStage({
           activeTab={activeTab}
           bandwidthMode={bandwidthMode}
           cloudMode={cloudMode}
+          onCloudRunnerStatus={onCloudRunnerStatus}
           browserScrollCommand={browserScrollCommand}
           browserZoom={browserZoom}
           keyboardOpen={keyboardOpen}
@@ -7763,6 +7956,7 @@ function BrowserDisplay({
   browserZoom,
   cloudMode,
   keyboardOpen,
+  onCloudRunnerStatus,
   onNavigate,
   pointerGlow,
   sessionState,
@@ -7775,6 +7969,7 @@ function BrowserDisplay({
   browserZoom: number;
   cloudMode: boolean;
   keyboardOpen: boolean;
+  onCloudRunnerStatus: (info: CloudRunnerInfo) => void;
   onNavigate: (value: string) => void;
   pointerGlow: boolean;
   sessionState: SessionState;
@@ -7810,6 +8005,7 @@ function BrowserDisplay({
                 emptyText={
                   "Cloud mode is the compatibility path for sites that block iframes."
                 }
+                onRunnerStatus={onCloudRunnerStatus}
                 scrollCommand={browserScrollCommand}
                 targetUrl={activeTab.url}
                 title={activeTab.title}
