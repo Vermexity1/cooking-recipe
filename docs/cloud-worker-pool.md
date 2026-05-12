@@ -1,7 +1,8 @@
 # Free cloud worker pool
 
-The web app can route remote-browser sessions to already-deployed Chromium
-workers before falling back to the included Vercel Sandbox quota.
+The web app routes remote-browser sessions to already-deployed Chromium workers.
+Vercel Sandbox fallback is disabled by default so sandbox data-transfer quota is
+not spent accidentally.
 
 ## Environment variables
 
@@ -18,14 +19,18 @@ VM_WORKER_URL_3=
 VM_WORKER_URL_4=
 VM_WORKER_URL_5=
 VM_WORKER_URLS=
+ENABLE_VERCEL_SANDBOX_FALLBACK=false
 ```
 
 `VM_WORKER_URLS` accepts comma-separated or newline-separated URLs. Use it only
 for free worker URLs you control.
 
-`/api/vm/launch` health-checks the configured workers, picks the fastest healthy
-one, returns the rest as browser-side backups, then falls back to Vercel Sandbox
-only if no worker answers.
+`/api/vm/launch` health-checks the configured workers, waits for sleeping free
+workers to wake, picks the fastest healthy one, and returns the rest as
+browser-side backups.
+
+Only set `ENABLE_VERCEL_SANDBOX_FALLBACK=true` if you intentionally want to use
+Vercel Sandbox transfer again. Leave it false to protect the data-transfer cap.
 
 ## Free provider order
 
@@ -34,8 +39,8 @@ only if no worker answers.
 2. Koyeb Free Instance: one free Web Service with 512 MB RAM, 0.1 vCPU, and 2 GB
    SSD. It scales down to zero after 1 hour without traffic. This may be too
    small for Chromium-heavy pages, but it is worth trying as a backup worker.
-3. Vercel Sandbox fallback: included with Vercel Hobby usage caps; if the cap is
-   exhausted, the cloud runner will fail instead of becoming unlimited.
+3. Vercel Sandbox fallback: optional only. It can spend sandbox data transfer
+   quickly because remote frames are streamed out of the sandbox.
 
 Fly.io is not listed because current Fly.io docs say there is no free account or
 free tier for new users. Legacy free allowances only apply to older accounts.

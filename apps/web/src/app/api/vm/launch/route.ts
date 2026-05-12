@@ -40,6 +40,10 @@ function workerAuthToken() {
   return (process.env.VM_WORKER_AUTH_TOKEN ?? process.env.WORKER_AUTH_TOKEN ?? "").trim();
 }
 
+function sandboxFallbackEnabled() {
+  return process.env.ENABLE_VERCEL_SANDBOX_FALLBACK === "true";
+}
+
 function configuredWorkerProviders() {
   const providers: WorkerProvider[] = [
     { name: "Primary worker", url: process.env.VM_WORKER_URL ?? "" },
@@ -457,6 +461,20 @@ export async function POST(request: Request) {
       stream: streamOptions,
       targetUrl,
     });
+  }
+
+  if (!sandboxFallbackEnabled()) {
+    return NextResponse.json(
+      {
+        configuredWorkers: configuredWorkers.length,
+        error:
+          "No external cloud worker answered. Vercel Sandbox fallback is disabled to protect sandbox data-transfer quota.",
+        hint:
+          "Use the three-dot Wake cloud runner button, wait for Render/Koyeb to become ready, then try again.",
+        targetUrl,
+      },
+      { status: 503 },
+    );
   }
 
   try {
