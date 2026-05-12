@@ -5,7 +5,6 @@ export const runtime = "nodejs";
 const providerEnv = [
   ["Render", "RENDER_VM_WORKER_URL"],
   ["Koyeb", "KOYEB_VM_WORKER_URL"],
-  ["Oracle Cloud", "OCI_VM_WORKER_URL"],
   ["Primary worker", "VM_WORKER_URL"],
   ["Worker 1", "VM_WORKER_URL_1"],
   ["Worker 2", "VM_WORKER_URL_2"],

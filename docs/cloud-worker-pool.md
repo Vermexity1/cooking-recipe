@@ -1,8 +1,7 @@
 # Free cloud worker pool
 
 The web app can route remote-browser sessions to already-deployed Chromium
-workers before falling back to the included Vercel Sandbox quota. This file only
-lists providers with a free path that can run, or realistically host, the worker.
+workers before falling back to the included Vercel Sandbox quota.
 
 ## Environment variables
 
@@ -12,7 +11,6 @@ Set any of these on the Vercel project:
 VM_WORKER_AUTH_TOKEN=
 RENDER_VM_WORKER_URL=
 KOYEB_VM_WORKER_URL=
-OCI_VM_WORKER_URL=
 VM_WORKER_URL=
 VM_WORKER_URL_1=
 VM_WORKER_URL_2=
@@ -33,15 +31,16 @@ only if no worker answers.
 
 1. Render Free Web Service: easiest free Docker worker, but it sleeps after idle
    time and has monthly limits.
-2. Koyeb Free Instance: free web service preview tier, but the free instance is
-   very small and can sleep.
-3. Oracle Cloud Always Free VM: strongest free compute, but it is much harder to
-   set up and free capacity can be unavailable in some regions.
-4. Vercel Sandbox fallback: included with Vercel Hobby usage caps; if the cap is
+2. Koyeb Free Instance: one free Web Service with 512 MB RAM, 0.1 vCPU, and 2 GB
+   SSD. It scales down to zero after 1 hour without traffic. This may be too
+   small for Chromium-heavy pages, but it is worth trying as a backup worker.
+3. Vercel Sandbox fallback: included with Vercel Hobby usage caps; if the cap is
    exhausted, the cloud runner will fail instead of becoming unlimited.
 
-Paid, trial-only, and incompatible container platforms are intentionally not
-listed as named worker targets here.
+Fly.io is not listed because current Fly.io docs say there is no free account or
+free tier for new users. Legacy free allowances only apply to older accounts.
+Oracle setup files were removed because capacity/sign-up was not working for this
+project.
 
 ## Worker environment
 
@@ -49,8 +48,8 @@ Use these variables on each worker service:
 
 ```env
 INITIAL_URL=https://www.wikipedia.org
-MAX_FPS=4
-FRAME_QUALITY=58
+MAX_FPS=3
+FRAME_QUALITY=52
 SCRATCH_ROOT=/tmp/veil-sessions
 WORKER_AUTH_TOKEN=make-this-a-long-random-secret
 ```

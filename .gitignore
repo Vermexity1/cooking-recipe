@@ -9,4 +9,3 @@ coverage
 Dockerfile.local
 private/
 apps/web/private/
-infrastructure/oracle/worker.env

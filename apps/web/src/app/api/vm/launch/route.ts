@@ -45,7 +45,6 @@ function configuredWorkerProviders() {
     { name: "Primary worker", url: process.env.VM_WORKER_URL ?? "" },
     { name: "Render", url: process.env.RENDER_VM_WORKER_URL ?? "" },
     { name: "Koyeb", url: process.env.KOYEB_VM_WORKER_URL ?? "" },
-    { name: "Oracle Cloud", url: process.env.OCI_VM_WORKER_URL ?? "" },
     { name: "Worker 1", url: process.env.VM_WORKER_URL_1 ?? "" },
     { name: "Worker 2", url: process.env.VM_WORKER_URL_2 ?? "" },
     { name: "Worker 3", url: process.env.VM_WORKER_URL_3 ?? "" },
@@ -515,7 +514,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         error:
-          "Cloud VM runner could not be launched. Set RENDER_VM_WORKER_URL, KOYEB_VM_WORKER_URL, OCI_VM_WORKER_URL, or VM_WORKER_URL to a deployed free Playwright worker, or use the included Vercel Sandbox fallback.",
+          "Cloud VM runner could not be launched. Set RENDER_VM_WORKER_URL, KOYEB_VM_WORKER_URL, or VM_WORKER_URL to a deployed free Playwright worker, or use the included Vercel Sandbox fallback.",
         detail: error instanceof Error ? error.message : String(error),
         targetUrl,
       },

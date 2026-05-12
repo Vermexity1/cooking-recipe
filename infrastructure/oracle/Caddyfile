@@ -1,4 +1,0 @@
-{$ORACLE_WORKER_HOST} {
-	encode gzip
-	reverse_proxy worker:3000
-}
