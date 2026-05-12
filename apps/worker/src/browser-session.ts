@@ -27,10 +27,12 @@ export class RemoteBrowserSession {
 
   async launch() {
     await mkdir(this.storagePath, { recursive: true });
+    const executablePath = process.env.CHROMIUM_EXECUTABLE_PATH?.trim();
 
     this.context = await chromium.launchPersistentContext(this.storagePath, {
       headless: true,
       chromiumSandbox: process.env.CHROMIUM_SANDBOX === "true",
+      ...(executablePath ? { executablePath } : {}),
       viewport: { width: 1440, height: 1000 },
       deviceScaleFactor: 1,
       permissions: [],
